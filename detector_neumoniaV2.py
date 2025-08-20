@@ -1,13 +1,9 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
-"""
-detector_neumonia.py
-Interfaz gráfica principal para la detección de neumonía usando módulos modularizados.
-"""
-
 from tkinter import *
 from tkinter import ttk, font, filedialog, Entry
+
 from tkinter.messagebox import askokcancel, showinfo, WARNING
 import getpass
 from PIL import ImageTk, Image
@@ -16,20 +12,125 @@ import pyautogui
 import tkcap
 import img2pdf
 import numpy as np
-import cv2
-
-# Importar módulos personalizados
-from read_img import read_image
-from integrator import predict
+import time
 import tensorflow as tf
-
-# Configuración de TensorFlow para compatibilidad
+from tensorflow.keras import backend as K
+import pydicom as dicom
 tf.compat.v1.disable_eager_execution()
 tf.compat.v1.experimental.output_all_intermediates(True)
+import cv2
 
 
-# Las funciones model_fun, grad_cam, predict, read_dicom_file, read_jpg_file y preprocess
-# ahora están implementadas en los módulos separados y se importan desde allí
+def model_fun():
+    """
+    Función para cargar el modelo entrenado de neumonía.
+    """
+    try:
+        # Intentar cargar con compile=False para evitar problemas de compatibilidad
+        model = tf.keras.models.load_model('conv_MLP_84.h5', compile=False)
+        # Recompilar el modelo si es necesario
+        model.compile(optimizer='adam', loss='categorical_crossentropy', metrics=['accuracy'])
+        print("Modelo cargado correctamente")
+        return model
+    except Exception as e:
+        print(f"Error al cargar el modelo: {e}")
+        print("Asegúrate de que el archivo conv_MLP_84.h5 existe en el directorio actual")
+        print("Si el problema persiste, podrías necesitar reentrenar el modelo con la versión actual de TensorFlow")
+        return None
+
+
+def grad_cam(array):
+    img = preprocess(array)
+    model = model_fun()
+    if model is None:
+        # Si el modelo no se carga, retornar imagen original
+        return cv2.resize(array, (512, 512))
+    preds = model.predict(img)
+    argmax = np.argmax(preds[0])
+    output = model.output[:, argmax]
+    last_conv_layer = model.get_layer("conv10_thisone")
+    grads = K.gradients(output, last_conv_layer.output)[0]
+    pooled_grads = K.mean(grads, axis=(0, 1, 2))
+    iterate = K.function([model.input], [pooled_grads, last_conv_layer.output[0]])
+    pooled_grads_value, conv_layer_output_value = iterate(img)
+    for filters in range(64):
+        conv_layer_output_value[:, :, filters] *= pooled_grads_value[filters]
+    # creating the heatmap
+    heatmap = np.mean(conv_layer_output_value, axis=-1)
+    heatmap = np.maximum(heatmap, 0)  # ReLU
+    heatmap /= np.max(heatmap)  # normalize
+    heatmap = cv2.resize(heatmap, (img.shape[1], img.shape[2]))
+    heatmap = np.uint8(255 * heatmap)
+    heatmap = cv2.applyColorMap(heatmap, cv2.COLORMAP_JET)
+    img2 = cv2.resize(array, (512, 512))
+    hif = 0.8
+    transparency = heatmap * hif
+    transparency = transparency.astype(np.uint8)
+    superimposed_img = cv2.add(transparency, img2)
+    superimposed_img = superimposed_img.astype(np.uint8)
+    return superimposed_img[:, :, ::-1]
+
+
+def predict(array):
+    #   1. call function to pre-process image: it returns image in batch format
+    batch_array_img = preprocess(array)
+    #   2. call function to load model and predict: it returns predicted class and probability
+    model = model_fun()
+    if model is None:
+        return ("Error", 0.0, cv2.resize(array, (512, 512)))
+    # model_cnn = tf.keras.models.load_model('conv_MLP_84.h5')
+    predictions = model.predict(batch_array_img)
+    prediction = np.argmax(predictions)
+    proba = np.max(predictions) * 100
+    label = ""
+    if prediction == 0:
+        label = "bacteriana"
+    if prediction == 1:
+        label = "normal"
+    if prediction == 2:
+        label = "viral"
+    #   3. call function to generate Grad-CAM: it returns an image with a superimposed heatmap
+    heatmap = grad_cam(array)
+    return (label, proba, heatmap)
+
+
+def read_dicom_file(path):
+    img = dicom.read_file(path)
+    img_array = img.pixel_array
+    img2show = Image.fromarray(img_array)
+    img2 = img_array.astype(float)
+    img2 = (np.maximum(img2, 0) / img2.max()) * 255.0
+    img2 = np.uint8(img2)
+    img_RGB = cv2.cvtColor(img2, cv2.COLOR_GRAY2RGB)
+    return img_RGB, img2show
+
+
+def read_jpg_file(path):
+    img = cv2.imread(path)
+    if img is None:
+        raise ValueError(f"No se pudo cargar la imagen: {path}")
+    
+    # Convertir de BGR a RGB para PIL
+    img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+    img2show = Image.fromarray(img_rgb)
+    
+    # Procesar imagen para el modelo
+    img2 = img.astype(float)
+    img2 = (np.maximum(img2, 0) / img2.max()) * 255.0
+    img2 = np.uint8(img2)
+    
+    return img2, img2show
+
+
+def preprocess(array):
+    array = cv2.resize(array, (512, 512))
+    array = cv2.cvtColor(array, cv2.COLOR_BGR2GRAY)
+    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(4, 4))
+    array = clahe.apply(array)
+    array = array / 255
+    array = np.expand_dims(array, axis=-1)
+    array = np.expand_dims(array, axis=0)
+    return array
 
 
 class App:
@@ -116,7 +217,6 @@ class App:
 
     #   METHODS
     def load_img_file(self):
-        """Carga una imagen desde archivo usando el módulo read_img."""
         filepath = filedialog.askopenfilename(
             initialdir="C:/",  # Cambiar a C:/ para Windows
             title="Select image",
@@ -132,8 +232,13 @@ class App:
         if filepath:
             print(f"Archivo seleccionado: {filepath}")  # Debug
             try:
-                # Usar la función unificada del módulo read_img
-                self.array, img2show = read_image(filepath)
+                # Determinar el tipo de archivo y usar la función correcta
+                if filepath.lower().endswith('.dcm'):
+                    print("Cargando como DICOM...")  # Debug
+                    self.array, img2show = read_dicom_file(filepath)
+                else:
+                    print("Cargando como JPG/JPEG/PNG...")  # Debug
+                    self.array, img2show = read_jpg_file(filepath)
                 
                 print(f"Imagen cargada: {img2show.size}")  # Debug
                 
@@ -180,7 +285,6 @@ class App:
                 return
             
             # Crear nombres de archivos únicos
-            import time
             timestamp = time.strftime("%Y%m%d_%H%M%S")
             temp_img_name = f"temp_reporte_{timestamp}.jpg"
             pdf_name = f"Reporte_Neumonia_{timestamp}.pdf"
@@ -189,7 +293,7 @@ class App:
             
             # Capturar la pantalla usando tkcap
             cap = tkcap.CAP(self.root)
-            cap.capture(temp_img_name)
+            img = cap.capture(temp_img_name)
             
             # Verificar que la captura se realizó correctamente
             import os
@@ -225,13 +329,14 @@ class App:
             
         except Exception as e:
             print(f"Error generando PDF: {e}")
-            # Intentar método alternativo usando img2pdf y pyautogui
+            # Intentar método alternativo usando img2pdf
             self._create_pdf_alternative()
     
     def _create_pdf_alternative(self):
         """Método alternativo para generar PDF usando img2pdf."""
         try:
-            import time
+            import pyautogui
+            from tkinter import messagebox
             
             # Generar nombre único
             timestamp = time.strftime("%Y%m%d_%H%M%S")
