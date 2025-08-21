@@ -1,11 +1,6 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
-"""
-detector_neumonia.py
-Interfaz gráfica principal para la detección de neumonía usando módulos modularizados.
-"""
-
 from tkinter import *
 from tkinter import ttk, font, filedialog, Entry
 from tkinter.messagebox import askokcancel, showinfo, WARNING
@@ -13,23 +8,22 @@ import getpass
 from PIL import ImageTk, Image
 import csv
 import pyautogui
-import tkcap
+# import tkcap  # Comentado - problemas de compatibilidad con Python 3.13
 import img2pdf
 import numpy as np
-import cv2
-
-# Importar módulos personalizados
-from read_img import read_image
-from integrator import predict
+import time
 import tensorflow as tf
 
-# Configuración de TensorFlow para compatibilidad
-tf.compat.v1.disable_eager_execution()
-tf.compat.v1.experimental.output_all_intermediates(True)
-
-
-# Las funciones model_fun, grad_cam, predict, read_dicom_file, read_jpg_file y preprocess
-# ahora están implementadas en los módulos separados y se importan desde allí
+try:
+    from ..image_processing.read_img import read_dicom_file, read_jpg_file
+    from ..utils.integrator import predict
+except ImportError:
+    import sys
+    import os
+    sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'image_processing'))
+    sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'utils'))
+    from read_img import read_dicom_file, read_jpg_file
+    from integrator import predict
 
 
 class App:
@@ -116,7 +110,6 @@ class App:
 
     #   METHODS
     def load_img_file(self):
-        """Carga una imagen desde archivo usando el módulo read_img."""
         filepath = filedialog.askopenfilename(
             initialdir="C:/",  # Cambiar a C:/ para Windows
             title="Select image",
@@ -132,8 +125,13 @@ class App:
         if filepath:
             print(f"Archivo seleccionado: {filepath}")  # Debug
             try:
-                # Usar la función unificada del módulo read_img
-                self.array, img2show = read_image(filepath)
+                # Determinar el tipo de archivo y usar la función correcta
+                if filepath.lower().endswith('.dcm'):
+                    print("Cargando como DICOM...")  # Debug
+                    self.array, img2show = read_dicom_file(filepath)
+                else:
+                    print("Cargando como JPG/JPEG/PNG...")  # Debug
+                    self.array, img2show = read_jpg_file(filepath)
                 
                 print(f"Imagen cargada: {img2show.size}")  # Debug
                 
@@ -172,52 +170,46 @@ class App:
             showinfo(title="Guardar", message="Los datos se guardaron con éxito.")
 
     def create_pdf(self):
-        """Genera un PDF con la captura de pantalla de la interfaz."""
+        """Genera un PDF con la captura de pantalla de la interfaz usando pyautogui."""
         try:
             # Verificar si hay datos para generar el reporte
             if not hasattr(self, 'label') or not hasattr(self, 'proba'):
                 showinfo(title="Error", message="Primero debe realizar una predicción antes de generar el PDF.")
                 return
             
-            # Crear nombres de archivos únicos
-            import time
+            # Generar nombre único
             timestamp = time.strftime("%Y%m%d_%H%M%S")
-            temp_img_name = f"temp_reporte_{timestamp}.jpg"
+            screenshot_name = f"screenshot_{timestamp}.png"
             pdf_name = f"Reporte_Neumonia_{timestamp}.pdf"
             
             print(f"Generando PDF: {pdf_name}")
             
-            # Capturar la pantalla usando tkcap
-            cap = tkcap.CAP(self.root)
-            cap.capture(temp_img_name)
+            # Tomar captura de pantalla de toda la ventana
+            # Obtener posición y tamaño de la ventana
+            x = self.root.winfo_rootx()
+            y = self.root.winfo_rooty()
+            w = self.root.winfo_width()
+            h = self.root.winfo_height()
             
-            # Verificar que la captura se realizó correctamente
-            import os
-            if not os.path.exists(temp_img_name):
-                raise Exception("No se pudo capturar la pantalla")
+            # Capturar la región de la ventana
+            screenshot = pyautogui.screenshot(region=(x, y, w, h))
+            screenshot.save(screenshot_name)
             
-            # Abrir y procesar la imagen capturada
-            img = Image.open(temp_img_name)
-            
-            # Asegurar que la imagen esté en modo RGB
-            if img.mode != 'RGB':
-                img = img.convert('RGB')
-            
-            # Guardar como PDF directamente
-            img.save(pdf_name, "PDF", resolution=100.0, save_all=True)
+            # Convertir imagen a PDF usando img2pdf
+            with open(pdf_name, "wb") as f:
+                f.write(img2pdf.convert(screenshot_name))
             
             # Limpiar archivo temporal
+            import os
             try:
-                os.remove(temp_img_name)
+                os.remove(screenshot_name)
             except:
-                pass  # No es crítico si no se puede eliminar
+                pass
             
-            # Incrementar ID para próximo reporte
             self.reportID += 1
             
-            # Mostrar mensaje de éxito
             showinfo(
-                title="PDF Generado", 
+                title="PDF Generado",
                 message=f"El PDF fue generado con éxito como:\n{pdf_name}\n\nUbicación: {os.path.abspath(pdf_name)}"
             )
             
@@ -225,13 +217,16 @@ class App:
             
         except Exception as e:
             print(f"Error generando PDF: {e}")
-            # Intentar método alternativo usando img2pdf y pyautogui
-            self._create_pdf_alternative()
+            showinfo(
+                title="Error",
+                message=f"No se pudo generar el PDF. Error: {e}\n\nVerifique que tenga permisos de escritura en el directorio."
+            )
     
     def _create_pdf_alternative(self):
         """Método alternativo para generar PDF usando img2pdf."""
         try:
-            import time
+            import pyautogui
+            from tkinter import messagebox
             
             # Generar nombre único
             timestamp = time.strftime("%Y%m%d_%H%M%S")
