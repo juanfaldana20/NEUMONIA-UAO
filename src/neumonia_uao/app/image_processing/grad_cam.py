@@ -1,6 +1,7 @@
 import numpy as np
 import cv2
 import tensorflow as tf
+from tensorflow.keras import backend as K
 
 try:
     from .preprocess_img import preprocess
@@ -15,7 +16,10 @@ except ImportError:
 
 def grad_cam(array):
     """
-    Genera un mapa de calor Grad-CAM simplificado y funcional.
+    Genera un mapa de calor Grad-CAM usando la implementación original corregida.
+    
+    Esta es la implementación original que funcionaba correctamente,
+    con las correcciones necesarias para TensorFlow 2.x
     
     Args:
         array: Array numpy de la imagen de entrada
@@ -24,193 +28,133 @@ def grad_cam(array):
         Array numpy con la imagen superpuesta con el heatmap
     """
     try:
-        print("🔥 Generando Grad-CAM simplificado...")
+        print("🔥 Generando Grad-CAM (implementación original corregida)...")
         
-        # 1. Preprocesar imagen
+        # Preprocesar imagen (igual que el original)
         img = preprocess(array)
         
-        # 2. Cargar modelo
+        # Cargar modelo (igual que el original)
         model = model_fun()
         if model is None:
-            print("❌ Modelo no disponible")
-            return _create_fallback_heatmap(array)
+            # Si el modelo no se carga, retornar imagen original
+            print("⚠️  Modelo no disponible, usando imagen original")
+            return cv2.resize(array, (512, 512))
         
-        # 3. Hacer predicción
-        predictions = model.predict(img, verbose=0)
-        predicted_class = np.argmax(predictions[0])
-        confidence = np.max(predictions[0]) * 100
+        # Hacer predicción (igual que el original)
+        preds = model.predict(img, verbose=0)
+        argmax = np.argmax(preds[0])
+        # CORRECCIÓN: Convertir argmax a int nativo de Python
+        argmax = int(argmax)
+        print(f"🎯 Clase predicha: {argmax}")
         
-        print(f"🎯 Predicción: clase {predicted_class} ({confidence:.1f}%)")
+        # CORRECCIÓN: Manejar model.output que puede ser una lista
+        if isinstance(model.output, list):
+            # Si model.output es una lista, tomar el primer elemento
+            model_output = model.output[0]
+        else:
+            # Si es un tensor directo
+            model_output = model.output
         
-        # 4. Intentar generar Grad-CAM real
-        try:
-            heatmap = _generate_gradcam_heatmap(model, img, predicted_class, array)
-            print("✅ Grad-CAM real generado exitosamente")
-            return heatmap
-            
-        except Exception as gradcam_error:
-            print(f"⚠️  Error en Grad-CAM real: {gradcam_error}")
-            print("📊 Generando heatmap basado en activaciones...")
-            
-            # 5. Fallback: heatmap basado en activaciones de capas
-            heatmap = _generate_activation_heatmap(model, img, array, predicted_class)
-            return heatmap
-            
-    except Exception as e:
-        print(f"❌ Error general: {e}")
-        return _create_fallback_heatmap(array)
-
-
-def _generate_gradcam_heatmap(model, img, predicted_class, original_array):
-    """Intenta generar Grad-CAM usando TensorFlow 2.x moderno"""
-    
-    # Encontrar capa convolucional objetivo
-    target_layer_name = 'conv10_thisone'
-    target_layer = None
-    
-    for layer in model.layers:
-        if layer.name == target_layer_name:
-            target_layer = layer
-            break
-    
-    if target_layer is None:
-        # Buscar cualquier capa convolucional
-        for layer in reversed(model.layers):
-            if isinstance(layer, tf.keras.layers.Conv2D):
-                target_layer = layer
-                target_layer_name = layer.name
-                break
-    
-    if target_layer is None:
-        raise Exception("No se encontraron capas convolucionales")
-    
-    print(f"🎯 Usando capa: {target_layer_name}")
-    
-    # Crear modelo que devuelve activaciones y predicciones
-    grad_model = tf.keras.models.Model(
-        [model.inputs], [target_layer.output, model.output]
-    )
-    
-    # Calcular gradientes
-    with tf.GradientTape() as tape:
-        inputs = tf.cast(img, tf.float32)
-        conv_outputs, predictions = grad_model(inputs)
-        loss = predictions[:, predicted_class]
-    
-    # Obtener gradientes
-    output = conv_outputs[0]
-    grads = tape.gradient(loss, conv_outputs)[0]
-    
-    # Calcular importancia de cada canal
-    gate_f = tf.cast(output > 0, 'float32')
-    gate_r = tf.cast(grads > 0, 'float32')
-    guided_grads = tf.cast(output > 0, 'float32') * tf.cast(grads > 0, 'float32') * grads
-    
-    # Promediar sobre altura y ancho
-    weights = tf.reduce_mean(guided_grads, axis=(0, 1))
-    
-    # Crear heatmap
-    cam = np.ones(output.shape[0:2], dtype=np.float32)
-    
-    for i, w in enumerate(weights):
-        cam += w * output[:, :, i]
-    
-    # Aplicar ReLU y normalizar
-    cam = np.maximum(cam, 0)
-    cam = cam / np.max(cam)
-    
-    # Redimensionar y aplicar
-    cam = cv2.resize(cam, (512, 512))
-    heatmap = np.uint8(255 * cam)
-    heatmap = cv2.applyColorMap(heatmap, cv2.COLORMAP_JET)
-    
-    # Superponer sobre imagen original
-    img_resized = cv2.resize(original_array, (512, 512))
-    if len(img_resized.shape) == 2:
-        img_resized = cv2.cvtColor(img_resized, cv2.COLOR_GRAY2RGB)
-    
-    superimposed = cv2.addWeighted(img_resized, 0.6, heatmap, 0.4, 0)
-    return superimposed
-
-
-def _generate_activation_heatmap(model, img, original_array, predicted_class):
-    """Genera heatmap basado en activaciones de capas intermedias"""
-    try:
-        # Encontrar una capa intermedia para visualizar
-        intermediate_layer = None
-        for layer in reversed(model.layers[:40]):  # Buscar en capas intermedias
-            if hasattr(layer, 'output_shape') and len(layer.output_shape) == 4:
-                if layer.output_shape[-1] is not None and layer.output_shape[-1] > 1:
-                    intermediate_layer = layer
-                    break
+        # Ahora crear el output para la clase predicha
+        output = model_output[:, argmax]  # Usar indexación estándar
         
-        if intermediate_layer is None:
-            raise Exception("No se encontró capa intermedia adecuada")
+        # Obtener capa convolucional (igual que el original)
+        last_conv_layer = model.get_layer("conv10_thisone")
+        print(f"🎯 Usando capa: {last_conv_layer.name}")
         
-        print(f"🔍 Usando activaciones de: {intermediate_layer.name}")
+        # IMPLEMENTACIÓN FINAL: Usar GradientTape con enfoque funcional
+        print("⚙️  Calculando gradientes...")
         
-        # Crear modelo para obtener activaciones
-        activation_model = tf.keras.models.Model(
+        # Convertir entrada a tensor
+        img_tensor = tf.convert_to_tensor(img, dtype=tf.float32)
+        
+        # Crear modelo que devuelve tanto las activaciones como las predicciones
+        grad_model = tf.keras.models.Model(
             inputs=model.input,
-            outputs=intermediate_layer.output
+            outputs=[last_conv_layer.output, model.output]
         )
         
-        # Obtener activaciones
-        activations = activation_model.predict(img, verbose=0)
+        with tf.GradientTape() as tape:
+            # Observar las activaciones convolucionales
+            conv_outputs, predictions = grad_model(img_tensor)
+            
+            # Manejar si predictions es una lista
+            if isinstance(predictions, list):
+                predictions = predictions[0]
+            
+            # Obtener la salida de la clase predicha
+            class_channel = predictions[:, argmax]
         
-        # Promediar canales para crear heatmap
-        if len(activations.shape) == 4:
-            heatmap = np.mean(activations[0], axis=-1)
+        # Calcular gradientes
+        grads = tape.gradient(class_channel, conv_outputs)
+        
+        # Verificar que los gradientes no sean None
+        if grads is None:
+            print("⚠️  No se pudieron calcular gradientes, usando aproximación")
+            # Usar aproximación basada en activaciones directas
+            conv_outputs_np = conv_outputs[0].numpy()
+            # Usar todas las activaciones con peso uniforme
+            pooled_grads_value = np.ones(conv_outputs_np.shape[-1]) / conv_outputs_np.shape[-1]
+            conv_layer_output_value = conv_outputs_np
         else:
-            # Si no es 4D, usar la activación directamente
-            heatmap = activations[0]
-            if len(heatmap.shape) > 2:
-                heatmap = np.mean(heatmap, axis=-1)
+            # Procesar gradientes normalmente
+            print("✅ Gradientes calculados correctamente")
+            # Pooled gradients (equivalente al original)
+            pooled_grads = tf.reduce_mean(grads, axis=(0, 1, 2))
+            
+            # Convertir a numpy
+            pooled_grads_value = pooled_grads.numpy()
+            conv_layer_output_value = conv_outputs[0].numpy()
         
-        # Normalizar
-        heatmap = np.maximum(heatmap, 0)
-        if np.max(heatmap) > 0:
-            heatmap = heatmap / np.max(heatmap)
+        # Aplicar gradientes a las activaciones (igual que el original)
+        for filters in range(64):
+            if filters < conv_layer_output_value.shape[-1]:  # CORRECCIÓN: verificar índice
+                conv_layer_output_value[:, :, filters] *= pooled_grads_value[filters]
         
-        # Redimensionar y aplicar colormap
-        heatmap = cv2.resize(heatmap, (512, 512))
+        # Crear heatmap (igual que el original)
+        heatmap = np.mean(conv_layer_output_value, axis=-1)
+        heatmap = np.maximum(heatmap, 0)  # ReLU
+        
+        # Normalizar (igual que el original)
+        if np.max(heatmap) > 0:  # CORRECCIÓN: evitar división por cero
+            heatmap /= np.max(heatmap)  # normalize
+        
+        # Redimensionar heatmap (igual que el original)
+        heatmap = cv2.resize(heatmap, (512, 512))  # CORRECCIÓN: usar tamaño fijo
         heatmap = np.uint8(255 * heatmap)
-        heatmap = cv2.applyColorMap(heatmap, cv2.COLORMAP_HOT)
+        heatmap = cv2.applyColorMap(heatmap, cv2.COLORMAP_JET)
         
-        # Superponer
-        img_resized = cv2.resize(original_array, (512, 512))
-        if len(img_resized.shape) == 2:
-            img_resized = cv2.cvtColor(img_resized, cv2.COLOR_GRAY2RGB)
+        # Preparar imagen base (igual que el original)
+        img2 = cv2.resize(array, (512, 512))
         
-        result = cv2.addWeighted(img_resized, 0.7, heatmap, 0.3, 0)
-        print("✅ Heatmap de activaciones generado")
-        return result
+        # CORRECCIÓN: Asegurar que img2 tenga 3 canales
+        if len(img2.shape) == 2:
+            img2 = cv2.cvtColor(img2, cv2.COLOR_GRAY2RGB)
+        elif len(img2.shape) == 3 and img2.shape[2] == 4:
+            img2 = cv2.cvtColor(img2, cv2.COLOR_BGRA2RGB)
+        
+        # Aplicar transparencia y superponer (igual que el original)
+        hif = 0.8
+        transparency = heatmap * hif
+        transparency = transparency.astype(np.uint8)
+        
+        # CORRECCIÓN: Usar addWeighted en lugar de add para mejor control
+        superimposed_img = cv2.addWeighted(img2, 0.6, transparency, 0.4, 0)
+        superimposed_img = superimposed_img.astype(np.uint8)
+        
+        print("✅ Grad-CAM original generado exitosamente")
+        
+        # Retornar con corrección de canales (igual que el original)
+        return superimposed_img[:, :, ::-1]
         
     except Exception as e:
-        print(f"⚠️  Error en heatmap de activaciones: {e}")
-        return _create_fallback_heatmap(original_array)
-
-
-def _create_fallback_heatmap(array):
-    """Crea un heatmap simulado como último recurso"""
-    print("🎭 Creando heatmap simulado...")
-    
-    img_resized = cv2.resize(array, (512, 512))
-    if len(img_resized.shape) == 2:
-        img_resized = cv2.cvtColor(img_resized, cv2.COLOR_GRAY2RGB)
-    
-    # Crear un gradiente radial simple como heatmap
-    h, w = 512, 512
-    center = (w//2, h//2)
-    Y, X = np.ogrid[:h, :w]
-    dist_from_center = np.sqrt((X - center[0])**2 + (Y - center[1])**2)
-    
-    # Crear heatmap con patrón radial
-    heatmap = np.exp(-dist_from_center / 100)
-    heatmap = np.uint8(255 * heatmap)
-    heatmap = cv2.applyColorMap(heatmap, cv2.COLORMAP_JET)
-    
-    # Superponer
-    result = cv2.addWeighted(img_resized, 0.8, heatmap, 0.2, 0)
-    print("🎆 Heatmap simulado creado")
-    return result
+        print(f"❌ Error en Grad-CAM original: {e}")
+        import traceback
+        traceback.print_exc()
+        
+        # Fallback: retornar imagen redimensionada
+        print("🔄 Usando imagen original como fallback")
+        img_fallback = cv2.resize(array, (512, 512))
+        if len(img_fallback.shape) == 2:
+            img_fallback = cv2.cvtColor(img_fallback, cv2.COLOR_GRAY2RGB)
+        return img_fallback
