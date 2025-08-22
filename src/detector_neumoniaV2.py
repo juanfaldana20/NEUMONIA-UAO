@@ -8,7 +8,6 @@ from tkinter.messagebox import askokcancel, showinfo, WARNING
 import getpass
 from PIL import ImageTk, Image
 import csv
-import pyautogui
 import tkcap
 import img2pdf
 import numpy as np
@@ -42,9 +41,6 @@ def model_fun():
 def grad_cam(array):
     img = preprocess(array)
     model = model_fun()
-    if model is None:
-        # Si el modelo no se carga, retornar imagen original
-        return cv2.resize(array, (512, 512))
     preds = model.predict(img)
     argmax = np.argmax(preds[0])
     output = model.output[:, argmax]
@@ -76,12 +72,9 @@ def predict(array):
     batch_array_img = preprocess(array)
     #   2. call function to load model and predict: it returns predicted class and probability
     model = model_fun()
-    if model is None:
-        return ("Error", 0.0, cv2.resize(array, (512, 512)))
     # model_cnn = tf.keras.models.load_model('conv_MLP_84.h5')
-    predictions = model.predict(batch_array_img)
-    prediction = np.argmax(predictions)
-    proba = np.max(predictions) * 100
+    prediction = np.argmax(model.predict(batch_array_img))
+    proba = np.max(model.predict(batch_array_img)) * 100
     label = ""
     if prediction == 0:
         label = "bacteriana"
@@ -92,6 +85,7 @@ def predict(array):
     #   3. call function to generate Grad-CAM: it returns an image with a superimposed heatmap
     heatmap = grad_cam(array)
     return (label, proba, heatmap)
+
 
 
 def read_dicom_file(path):
@@ -107,19 +101,13 @@ def read_dicom_file(path):
 
 def read_jpg_file(path):
     img = cv2.imread(path)
-    if img is None:
-        raise ValueError(f"No se pudo cargar la imagen: {path}")
-    
-    # Convertir de BGR a RGB para PIL
-    img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-    img2show = Image.fromarray(img_rgb)
-    
-    # Procesar imagen para el modelo
-    img2 = img.astype(float)
+    img_array = np.asarray(img)
+    img2show = Image.fromarray(img_array)
+    img2 = img_array.astype(float)
     img2 = (np.maximum(img2, 0) / img2.max()) * 255.0
     img2 = np.uint8(img2)
-    
     return img2, img2show
+
 
 
 def preprocess(array):
@@ -277,111 +265,15 @@ class App:
             showinfo(title="Guardar", message="Los datos se guardaron con éxito.")
 
     def create_pdf(self):
-        """Genera un PDF con la captura de pantalla de la interfaz."""
-        try:
-            # Verificar si hay datos para generar el reporte
-            if not hasattr(self, 'label') or not hasattr(self, 'proba'):
-                showinfo(title="Error", message="Primero debe realizar una predicción antes de generar el PDF.")
-                return
-            
-            # Crear nombres de archivos únicos
-            timestamp = time.strftime("%Y%m%d_%H%M%S")
-            temp_img_name = f"temp_reporte_{timestamp}.jpg"
-            pdf_name = f"Reporte_Neumonia_{timestamp}.pdf"
-            
-            print(f"Generando PDF: {pdf_name}")
-            
-            # Capturar la pantalla usando tkcap
-            cap = tkcap.CAP(self.root)
-            img = cap.capture(temp_img_name)
-            
-            # Verificar que la captura se realizó correctamente
-            import os
-            if not os.path.exists(temp_img_name):
-                raise Exception("No se pudo capturar la pantalla")
-            
-            # Abrir y procesar la imagen capturada
-            img = Image.open(temp_img_name)
-            
-            # Asegurar que la imagen esté en modo RGB
-            if img.mode != 'RGB':
-                img = img.convert('RGB')
-            
-            # Guardar como PDF directamente
-            img.save(pdf_name, "PDF", resolution=100.0, save_all=True)
-            
-            # Limpiar archivo temporal
-            try:
-                os.remove(temp_img_name)
-            except:
-                pass  # No es crítico si no se puede eliminar
-            
-            # Incrementar ID para próximo reporte
-            self.reportID += 1
-            
-            # Mostrar mensaje de éxito
-            showinfo(
-                title="PDF Generado", 
-                message=f"El PDF fue generado con éxito como:\n{pdf_name}\n\nUbicación: {os.path.abspath(pdf_name)}"
-            )
-            
-            print(f"PDF generado exitosamente: {pdf_name}")
-            
-        except Exception as e:
-            print(f"Error generando PDF: {e}")
-            # Intentar método alternativo usando img2pdf
-            self._create_pdf_alternative()
-    
-    def _create_pdf_alternative(self):
-        """Método alternativo para generar PDF usando img2pdf."""
-        try:
-            import pyautogui
-            from tkinter import messagebox
-            
-            # Generar nombre único
-            timestamp = time.strftime("%Y%m%d_%H%M%S")
-            screenshot_name = f"screenshot_{timestamp}.png"
-            pdf_name = f"Reporte_Neumonia_{timestamp}.pdf"
-            
-            print("Intentando método alternativo para generar PDF...")
-            
-            # Tomar captura de pantalla de toda la ventana
-            # Obtener posición y tamaño de la ventana
-            x = self.root.winfo_rootx()
-            y = self.root.winfo_rooty()
-            w = self.root.winfo_width()
-            h = self.root.winfo_height()
-            
-            # Capturar la región de la ventana
-            screenshot = pyautogui.screenshot(region=(x, y, w, h))
-            screenshot.save(screenshot_name)
-            
-            # Convertir imagen a PDF usando img2pdf
-            with open(pdf_name, "wb") as f:
-                f.write(img2pdf.convert(screenshot_name))
-            
-            # Limpiar archivo temporal
-            import os
-            try:
-                os.remove(screenshot_name)
-            except:
-                pass
-            
-            self.reportID += 1
-            
-            showinfo(
-                title="PDF Generado (Método Alternativo)",
-                message=f"El PDF fue generado con éxito usando método alternativo:\n{pdf_name}"
-            )
-            
-            print(f"PDF generado con método alternativo: {pdf_name}")
-            
-        except Exception as e:
-            print(f"Error en método alternativo: {e}")
-            showinfo(
-                title="Error",
-                message=f"No se pudo generar el PDF. Error: {e}\n\nVerifique que tenga permisos de escritura en el directorio."
-            )
+        cap = tkcap.CAP(self.root)
+        ID = "Reporte" + str(self.reportID) + ".jpg"
+        img = cap.capture(ID)
+        img = Image.open(ID)
+        img = img.convert("RGB")
+        pdf_path = r"Reporte" + str(self.reportID) + ".pdf"
+        img.save(pdf_path)
+        self.reportID += 1
+        showinfo(title="PDF", message="El PDF fue generado con éxito.")
 
     def delete(self):
         answer = askokcancel(
