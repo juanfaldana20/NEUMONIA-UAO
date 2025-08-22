@@ -1,0 +1,70 @@
+Cambios realizados por archivo
+1) load_model.py
+•  Añadido caché del modelo (variable de módulo _MODEL) para evitar recargarlo múltiples veces.
+•  Centralizada la configuración de TensorFlow (deshabilitar eager y compat de v1) en una única función interna, fuera de la UI.
+•  Se compila el modelo una sola vez y se reutiliza en sucesivas llamadas.
+
+Beneficios:
+•  Menor acoplamiento: la UI ya no decide detalles del backend de TF.
+•  Mejor rendimiento: no se reabre ni recompila el modelo para cada predicción.
+
+2) app.py
+•  Eliminada la configuración de TensorFlow del archivo de UI.
+•  La UI queda enfocada en presentación y orquestación (carga de imagen, mostrar resultados, exportar), sin responsabilidades del backend.
+
+Beneficios:
+•  Mayor cohesión de la UI.
+•  Menor acoplamiento con el framework de ML.
+
+3) integrator.py
+•  predict realiza una sola inferencia (model.predict) y de esa salida calcula clase y probabilidad.
+•  Manejo explícito de error si el modelo no se carga (RuntimeError claro).
+•  Se restauró la llamada a grad_cam(array) con la firma original (sin pasar parámetros), pero se mantiene el beneficio del modelo cacheado (grad_cam lo reutiliza internamente).
+
+Beneficios:
+•  Menor trabajo duplicado (se evita llamar predict dos veces).
+•  Cohesión clara: integración del flujo de predicción en un punto.
+
+4) grad_cam.py
+•  Finalmente se restauró exactamente la versión original para preservar el mapa de calor como lo tenías (capa “conv10_thisone”, ponderación con 64 filtros, normalización y mezcla originales).
+
+Nota de diseño:
+•  Esta decisión mantiene el comportamiento esperado, pero implica acoplamiento al nombre de capa “conv10_thisone”. Si cambias la arquitectura del modelo, habrá que ajustar este nombre.
+
+Arquitectura resultante (cohesión y acoplamiento)
+•  Cohesión (alta):
+•  app.py: solo UI y control de flujo de presentación.
+•  integrator.py: punto único de orquestación de inferencia y resultados.
+•  load_model.py: responsabilidad única de cargar/configurar/caches del modelo.
+•  preprocess_img.py: solo preprocesamiento de imágenes.
+•  read_img.py: solo lectura y normalización inicial de DICOM/JPG.
+•  grad_cam.py: solo generación de heatmap.
+•  Acoplamiento (bajo en general):
+•  Reducido: UI ya no configura TensorFlow; el modelo se comparte por caché (no múltiples cargas).
+•  Persistente (aceptado por requerimiento de conservar el heatmap): Grad-CAM depende del nombre de capa “conv10_thisone”. Es un acoplamiento deliberado al artefacto del modelo para mantener el comportamiento original.
+
+Impacto en rendimiento y robustez
+•  Rendimiento:
+•  Menos latencia por llamado (una sola inferencia por predicción).
+•  El primer uso carga el modelo; usos posteriores reutilizan la instancia (caché).
+•  Robustez:
+•  Si falla la carga del modelo, se informa con un error claro desde integrator.predict.
+•  La UI está más aislada de detalles del backend.
+
+Qué no se cambió (y recomendaciones)
+•  detector_neumoniaV2.py: permanece como archivo legacy con lógica duplicada. Recomendado:
+•  Moverlo a una carpeta legacy/ o refactorizarlo para reutilizar los módulos actuales (read_img, preprocess_img, load_model, grad_cam, integrator).
+•  Configuración externa:
+•  Opcional crear config.py con constantes (ruta del modelo, nombre de capa Grad-CAM, parámetros de preprocesamiento).
+•  Calidad de código:
+•  Añadir type hints y docstrings, y pasar herramientas de estilo (black/flake8) y análisis estático (mypy).
+•  UX/Errores en UI:
+•  Añadir mensajes si no hay imagen cargada o si falla la carga del modelo, evitando que la app intente predecir sin datos.
+•  Pruebas:
+•  Unit tests para preprocess, predict y grad_cam con imágenes de ejemplo, validando salidas básicas.
+
+Estado de cumplimiento
+•  El proyecto, en la copia “idea_codigo_cohesion_acoplamiento”, cumple razonablemente con:
+•  Alta cohesión: cada módulo tiene una responsabilidad bien definida.
+•  Bajo acoplamiento: se redujo la dependencia entre UI y backend, y se evita recargar el modelo.
+•  Excepción consciente: grad_cam mantiene un acoplamiento a un nombre de capa específico para preservar el mapa de calor original. Esto es aceptable si no se planea cambiar la arquitectura; si se requiere flexibilidad futura, se puede exponer el nombre de capa como parámetro configurable sin alterar el comportamiento por defecto.

@@ -1,0 +1,12 @@
+Ajustes PEP8 aplicados
+•  app.py
+•  Reordené imports por grupos: estándar, terceros, locales; alfabético dentro de cada grupo.
+•  Eliminé import innecesario de numpy.
+•  Mantengo imports locales de tkcap e Image dentro de create_pdf para no duplicarlos entre secciones; si prefieres, puedo moverlos al tope, pero entonces elimino los internos.
+•  grad_cam.py
+•  Añadí una línea en blanco entre grupos de import y antes de la función top-level.
+•  integrator.py
+•  Aseguré separación por líneas en blanco antes de función top-level.
+•  preprocess_img.py y read_img.py
+•  Inserté líneas en blanco entre imports y funciones.
+•  Añadí línea en blanco entre funciones en read_img.py.
