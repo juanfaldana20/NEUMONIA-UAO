@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
+import os
 import csv
 from tkinter import *
 from tkinter import Text, filedialog, font, ttk
@@ -108,22 +109,21 @@ class App:
         self.text3.insert(END, "{:.2f}".format(self.proba) + "%")
 
     def save_results_csv(self):
-        import csv
         with open("historial.csv", "a") as csvfile:
             w = csv.writer(csvfile, delimiter="-")
             w.writerow([self.text1.get(), self.label, "{:.2f}".format(self.proba) + "%"])
             showinfo(title="Guardar", message="Los datos se guardaron con éxito.")
 
     def create_pdf(self):
-        import tkcap
-        from PIL import Image
+        os.makedirs("reportes", exist_ok=True)
         cap = tkcap.CAP(self.root)
         ID = "Reporte" + str(self.reportID) + ".jpg"
         img = cap.capture(ID)
         img = Image.open(ID)
         img = img.convert("RGB")
-        pdf_path = r"Reporte" + str(self.reportID) + ".pdf"
+        pdf_path = os.path.join("reportes", f"Reporte{self.reportID}.pdf")
         img.save(pdf_path)
+        os.remove(ID)
         self.reportID += 1
         showinfo(title="PDF", message="El PDF fue generado con éxito.")
 
