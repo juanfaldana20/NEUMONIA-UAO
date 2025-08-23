@@ -22,6 +22,8 @@ A continuación le explicaremos cómo empezar a utilizarla.
 
 Requerimientos necesarios para el funcionamiento:
 
+-compatilidad con python <= 3.10.x  
+
 - Instale Anaconda para Windows siguiendo las siguientes instrucciones:
   https://docs.anaconda.com/anaconda/install/windows/
 
