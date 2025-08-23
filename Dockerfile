@@ -1,9 +1,24 @@
-FROM python:latest
+# Imagen base de Python
+FROM python:3.10-slim
 
-RUN apt-get update -y && \
-    apt-get install python3-opencv -y 
+# Evitar que Python cree archivos __pycache__ y buffers
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
 
-WORKDIR /home/src
+# Crear directorio de trabajo dentro del contenedor
+WORKDIR /app
 
-COPY . ./
-RUN pip install -r requirements.txt
+# Copiar requirements
+COPY requirements.txt .
+
+# Instalar dependencias
+RUN pip install --upgrade pip
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copiamos el resto de la app
+COPY src/ ./src/
+COPY conv_MLP_84.h5 ./  
+
+# Si quieres que corra tu app tkinter al iniciar:
+CMD ["python", "src/app.py"]
+
