@@ -19,6 +19,5 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY src/ ./src/
 COPY conv_MLP_84.h5 ./  
 
-# Si quieres que corra tu app tkinter al iniciar:
 CMD ["python", "src/app.py"]
 
