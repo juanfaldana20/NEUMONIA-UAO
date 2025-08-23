@@ -13,7 +13,11 @@ def dummy_grad_cam(array):
 
 
 def test_predict_with_monkeypatch(monkeypatch):
+<<<<<<< HEAD
     
+=======
+
+>>>>>>> 974e3fb258c17529856d98bccb1f71e3175da23f
     monkeypatch.setattr(integrator, "model_fun", lambda: DummyModel())
     monkeypatch.setattr(integrator, "grad_cam", dummy_grad_cam)
 
