@@ -13,7 +13,7 @@ def dummy_grad_cam(array):
 
 
 def test_predict_with_monkeypatch(monkeypatch):
-    # OJO: integrator importó model_fun y grad_cam en su namespace
+
     monkeypatch.setattr(integrator, "model_fun", lambda: DummyModel())
     monkeypatch.setattr(integrator, "grad_cam", dummy_grad_cam)
 
