@@ -1,4 +1,11 @@
+
+
+from manejo_avisos import configurar_logs
+
+configurar_logs()# necesario para eliminar avisos molestos 
+
 import tensorflow as tf
+
 
 _MODEL = None
 _TF_CONFIGURED = False

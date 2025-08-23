@@ -1,8 +1,15 @@
+
 import numpy as np
 import cv2
+
+from manejo_avisos import configurar_logs
+
+configurar_logs()# necesario para eliminar avisos molestos 
+
 from tensorflow.keras import backend as K
 from preprocess_img import preprocess
 from load_model import model_fun
+
 
 
 def grad_cam(array):

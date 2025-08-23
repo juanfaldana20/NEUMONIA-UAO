@@ -1,8 +1,8 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-
 import os
 import csv
+
 from tkinter import *
 from tkinter import Text, filedialog, font, ttk
 from tkinter.messagebox import WARNING, askokcancel, showinfo
@@ -12,8 +12,6 @@ import tkcap
 
 from integrator import predict
 from read_img import read_dicom_file, read_jpg_file
-
-
 
 class App:
     def __init__(self):
@@ -142,6 +140,8 @@ class App:
                 del self.img2
             self.button1["state"] = "disabled"
             showinfo(title="Borrar", message="Los datos se borraron con éxito")
+
+
 
 def main():
     my_app = App()
